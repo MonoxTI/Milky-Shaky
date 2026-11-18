@@ -1,8 +1,26 @@
-import type { NextConfig } from "next";
+import type { NextAuthConfig } from "next-auth";
 
-const nextConfig: NextConfig = {
-  cacheComponents: true,
-  partialPrefetching: true,
-};
-
-export default nextConfig;
+// Shared settings with no database access, so they can run in proxy.ts.
+export const authConfig = {
+  pages: {
+    signIn: "/login",
+  },
+  session: {
+    strategy: "jwt",
+  },
+  providers: [],
+  callbacks: {
+    jwt({ token, user }) {
+      if (user) {
+        token.id = user.id as string;
+        token.role = user.role;
+      }
+      return token;
+    },
+    session({ session, token }) {
+      session.user.id = token.id as string;
+      session.user.role = token.role as "MANAGER" | "CLIENT";
+      return session;
+    },
+  },
+} satisfies NextAuthConfig;

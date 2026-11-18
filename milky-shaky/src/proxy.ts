@@ -1,7 +1,7 @@
 import { getToken } from "next-auth/jwt";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PATRON_ROUTES = ["/order", "/orders"];
+const PATRON_ROUTES = ["/order", "/orders", "/payment"];
 const AUTH_ROUTES = ["/login", "/signup"];
 
 function startsWithAny(pathname: string, prefixes: string[]) {
