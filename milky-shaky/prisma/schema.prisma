@@ -1,0 +1,260 @@
+// Milky Shaky Ordering Platform - schema
+// Conventions:
+//  - All money is stored as integer cents (ZAR). Never use floats for money.
+//  - Orders snapshot names and prices at purchase time, so later lookup or
+//    config changes never alter completed or open transactions.
+//  - Lookups are soft-deleted (isActive) because order items reference them.
+//  - AuditLog gets one row per changed field and is append-only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  MANAGER
+  CLIENT
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PAYMENT_FAILED
+  CANCELLED
+  COLLECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentProvider {
+  PAYFAST
+  YOCO
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  STATUS_CHANGE
+}
+
+enum SettingType {
+  INT
+  DECIMAL
+  STRING
+  BOOLEAN
+}
+
+// ---------- Users ----------
+
+model User {
+  id              String    @id @default(cuid())
+  firstName       String
+  email           String    @unique
+  mobile          String    @unique
+  passwordHash    String
+  role            Role      @default(CLIENT)
+  isActive        Boolean   @default(true)
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  orders       Order[]
+  auditEntries AuditLog[] @relation("auditActor")
+}
+
+// ---------- Restaurants (pickup locations) ----------
+
+model Restaurant {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  address   String
+  opensAt   String // "HH:mm" local time, Africa/Johannesburg
+  closesAt  String // "HH:mm" local time
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+}
+
+// ---------- Lookups (managed via Lookup-manager) ----------
+
+model Flavour {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  priceCents Int      @default(0)
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orderItems OrderItem[]
+}
+
+model Topping {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  priceCents Int      @default(0)
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orderItems OrderItem[]
+}
+
+// "Thick or not": Double thick, Thick, Milky, Icy
+model Consistency {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  priceCents Int      @default(0)
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orderItems OrderItem[]
+}
+
+// ---------- Configurable values (max drinks, VAT, prep lead time, ...) ----------
+
+model Setting {
+  key         String      @id // e.g. MAX_DRINKS_PER_ORDER, VAT_PERCENT
+  value       String
+  valueType   SettingType
+  description String?
+  updatedById String?
+  updatedAt   DateTime    @updatedAt
+}
+
+// ---------- Frequent customer discount tiers ----------
+
+model DiscountTier {
+  id                Int      @id @default(autoincrement())
+  level             Int      @unique // 1, 2, 3
+  minPriorOrders    Int // orders the patron must have before this tier applies
+  minDrinksPerOrder Int // drinks in an order for it to count towards the tier
+  discountPercent   Decimal  @db.Decimal(5, 2)
+  isActive          Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+}
+
+// ---------- Orders ----------
+
+model Order {
+  id           String      @id @default(cuid())
+  reference    String      @unique // human-friendly, e.g. MS-20251120-0001
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id])
+  pickupAt     DateTime
+  status       OrderStatus @default(PENDING_PAYMENT)
+
+  // Price snapshot (integer cents)
+  subtotalCents   Int
+  discountPercent Decimal @default(0) @db.Decimal(5, 2)
+  discountCents   Int     @default(0)
+  vatPercent      Decimal @db.Decimal(5, 2)
+  vatCents        Int
+  totalCents      Int
+
+  paidAt      DateTime?
+  collectedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  items    OrderItem[]
+  payments Payment[]
+  emails   EmailLog[]
+
+  @@index([userId, createdAt])
+  @@index([restaurantId, pickupAt])
+  @@index([status, createdAt])
+}
+
+// One row per drink ("DRINK DETAIL" container)
+model OrderItem {
+  id            String      @id @default(cuid())
+  orderId       String
+  order         Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  flavourId     String
+  flavour       Flavour     @relation(fields: [flavourId], references: [id])
+  toppingId     String
+  topping       Topping     @relation(fields: [toppingId], references: [id])
+  consistencyId String
+  consistency   Consistency @relation(fields: [consistencyId], references: [id])
+
+  // Snapshots at time of order
+  flavourName     String
+  toppingName     String
+  consistencyName String
+  unitPriceCents  Int
+
+  @@index([orderId])
+}
+
+// ---------- Payments ----------
+
+model Payment {
+  id                String          @id @default(cuid())
+  orderId           String
+  order             Order           @relation(fields: [orderId], references: [id])
+  provider          PaymentProvider
+  providerReference String?         @unique // idempotency key for webhooks
+  amountCents       Int
+  status            PaymentStatus   @default(PENDING)
+  rawNotification   Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([orderId])
+}
+
+// ---------- Email log (confirmations and receipts, resendable) ----------
+
+model EmailLog {
+  id                String   @id @default(cuid())
+  orderId           String?
+  order             Order?   @relation(fields: [orderId], references: [id])
+  toAddress         String
+  template          String // ORDER_CONFIRMATION, PAYMENT_RECEIPT
+  status            String // QUEUED, SENT, FAILED
+  providerMessageId String?
+  error             String?
+  createdAt         DateTime @default(now())
+
+  @@index([orderId])
+}
+
+// ---------- Audit trail (who changed what, from what, to what) ----------
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  entity    String // "Flavour", "Setting", "Order", "User", ...
+  entityId  String
+  action    AuditAction
+  field     String? // null for CREATE/DELETE
+  oldValue  Json?
+  newValue  Json?
+  actorId   String?
+  actor     User?       @relation("auditActor", fields: [actorId], references: [id])
+  ipAddress String?
+  createdAt DateTime    @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+}
