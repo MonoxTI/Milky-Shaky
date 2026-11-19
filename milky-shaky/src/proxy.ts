@@ -17,12 +17,13 @@ function redirectToLogin(url: URL) {
 // Optimistic checks only: reads the signed session cookie, no database query.
 // Each protected page still checks the session itself (see src/lib/rbac.ts).
 export default async function proxy(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, searchParams } = req.nextUrl;
   const token = await getToken({ req, secret: process.env.AUTH_SECRET });
   const isLoggedIn = !!token;
   const role = token?.role;
 
-  if (startsWithAny(pathname, AUTH_ROUTES) && isLoggedIn) {
+  // A "reason" on the login page means a page sent the user here, so don't bounce them back.
+  if (startsWithAny(pathname, AUTH_ROUTES) && isLoggedIn && !searchParams.has("reason")) {
     return NextResponse.redirect(new URL("/order", req.nextUrl));
   }
 
