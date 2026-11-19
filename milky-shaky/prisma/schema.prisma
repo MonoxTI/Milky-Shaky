@@ -257,3 +257,17 @@ model AuditLog {
   @@index([actorId])
   @@index([createdAt])
 }
+// ---------- Rate limiting (fixed windows keyed by action and identifier) ----------
+
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime
+}
+// ---------- Rate limiting (fixed windows keyed by action and identifier) ----------
+
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime
+}
