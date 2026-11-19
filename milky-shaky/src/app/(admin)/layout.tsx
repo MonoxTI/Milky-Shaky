@@ -18,7 +18,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <Navbar />
       </Suspense>
       <div className="mx-auto max-w-6xl px-6 pt-8">
-        <SectionTabs items={ADMIN_TABS} />
+        <Suspense fallback={<div className="h-10 border-b" />}>
+          <SectionTabs items={ADMIN_TABS} />
+        </Suspense>
       </div>
       {children}
     </>

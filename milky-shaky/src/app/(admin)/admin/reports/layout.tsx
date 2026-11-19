@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { ReportTabs } from "@/components/reports/report-tabs";
 
 export default function ReportsLayout({ children }: { children: React.ReactNode }) {
@@ -8,7 +9,9 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
           <p className="text-sm font-semibold uppercase tracking-widest text-primary">Management</p>
           <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
         </div>
-        <ReportTabs />
+        <Suspense fallback={<div className="h-10 w-80 animate-pulse rounded-full bg-muted" />}>
+          <ReportTabs />
+        </Suspense>
       </div>
       {children}
     </main>
