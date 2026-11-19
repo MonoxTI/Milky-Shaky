@@ -22,18 +22,15 @@ export default async function proxy(req: NextRequest) {
   const isLoggedIn = !!token;
   const role = token?.role;
 
-  // Logged-in users don't need the login or sign-up pages.
   if (startsWithAny(pathname, AUTH_ROUTES) && isLoggedIn) {
     return NextResponse.redirect(new URL("/order", req.nextUrl));
   }
 
-  // Management area: managers only.
   if (startsWithAny(pathname, ["/admin"])) {
     if (!isLoggedIn) return redirectToLogin(req.nextUrl);
     if (role !== "MANAGER") return NextResponse.redirect(new URL("/order", req.nextUrl));
   }
 
-  // Patron area: any logged-in user.
   if (startsWithAny(pathname, PATRON_ROUTES) && !isLoggedIn) {
     return redirectToLogin(req.nextUrl);
   }

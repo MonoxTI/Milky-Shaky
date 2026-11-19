@@ -2,6 +2,7 @@ import { OrderStatus, PaymentProvider, PaymentStatus, Prisma } from "@prisma/cli
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { recordUpdate } from "@/features/audit/recordChange";
+import { sendPaymentReceipt } from "@/features/email/service";
 import { initializeTransaction, verifyTransaction, type InitializeResult, type VerifyResult } from "./paystack";
 import { isExpectedAmount } from "./signature";
 
@@ -54,7 +55,7 @@ export async function startCheckout(userId: string, orderId: string): Promise<st
 
 /**
  * Checks a payment with Paystack and updates the order. Safe to call repeatedly:
- * once a payment is settled, later calls change nothing.
+ * once a payment is settled, later calls change nothing and send no duplicate emails.
  */
 export async function confirmPayment(paymentId: string): Promise<PaymentOutcome> {
   const payment = await db.payment.findUnique({
@@ -79,23 +80,40 @@ export async function confirmPayment(paymentId: string): Promise<PaymentOutcome>
   }
 
   if (transaction.status === "success") {
-    await settlePayment(payment.id, payment.orderId, PaymentStatus.SUCCEEDED, transaction);
+    const becamePaid = await settlePayment(payment.id, payment.orderId, PaymentStatus.SUCCEEDED, transaction);
+    // Only the call that actually changed the order sends the receipt, so it's never sent twice.
+    if (becamePaid) await sendReceiptSafely(payment.orderId, payment.id);
     return "PAID";
   }
+
   if (transaction.status === "failed") {
     await settlePayment(payment.id, payment.orderId, PaymentStatus.FAILED, transaction);
     return "FAILED";
   }
+
   return "PENDING"; // abandoned or still in progress
 }
 
+/** Sends the receipt email. A failure is logged and never affects the payment. */
+async function sendReceiptSafely(orderId: string, paymentReference: string): Promise<void> {
+  try {
+    await sendPaymentReceipt(orderId, paymentReference);
+  } catch (error) {
+    console.error(`Could not send receipt email for order ${orderId}`, error);
+  }
+}
+
+/**
+ * Writes the payment result and, for a successful payment, marks the order PAID.
+ * Returns true only when this call changed the order to PAID.
+ */
 async function settlePayment(
   paymentId: string,
   orderId: string,
   outcome: typeof PaymentStatus.SUCCEEDED | typeof PaymentStatus.FAILED,
   transaction: VerifyResult,
-) {
-  await db.$transaction(async (tx) => {
+): Promise<boolean> {
+  return db.$transaction(async (tx) => {
     // Claim the payment first. If another request already settled it, stop here.
     const claimed = await tx.payment.updateMany({
       where: { id: paymentId, status: PaymentStatus.PENDING },
@@ -104,7 +122,7 @@ async function settlePayment(
         rawNotification: transaction as unknown as Prisma.InputJsonValue,
       },
     });
-    if (claimed.count === 0) return;
+    if (claimed.count === 0) return false;
 
     const order = await tx.order.findUniqueOrThrow({
       where: { id: orderId },
@@ -120,7 +138,7 @@ async function settlePayment(
           orderStatus: order.status,
         });
       }
-      return;
+      return false;
     }
 
     const nextStatus = outcome === PaymentStatus.SUCCEEDED ? OrderStatus.PAID : OrderStatus.PAYMENT_FAILED;
@@ -139,5 +157,7 @@ async function settlePayment(
       after: { status: nextStatus },
       fields: ["status"],
     });
+
+    return outcome === PaymentStatus.SUCCEEDED;
   });
 }

@@ -5,7 +5,7 @@ type Params = Promise<{ callbackUrl?: string }>;
 
 export default function LoginPage({ searchParams }: { searchParams: Params }) {
   return (
-    <main className="flex min-h-screen items-center justify-center p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-linear-to-br from-pink-100 via-background to-amber-100 p-4">
       <Suspense fallback={null}>
         <LoginFormWithParams searchParams={searchParams} />
       </Suspense>

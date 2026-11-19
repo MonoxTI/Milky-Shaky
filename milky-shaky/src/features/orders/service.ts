@@ -4,6 +4,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getOrderingSettings } from "@/features/settings/service";
 import { resolveDiscountBps } from "@/features/discounts/eligibility";
+import { sendOrderConfirmation } from "@/features/email/service";
 import { calculateOrderTotals, percentToBps, priceDrink } from "./pricing";
 import { STORE_TIME_ZONE, parseLocalPickup, validatePickupTime } from "./pickup";
 import { orderInputSchema, type OrderInput } from "./schemas";
@@ -16,6 +17,15 @@ function makeReference(now: Date): string {
   const day = formatInTimeZone(now, STORE_TIME_ZONE, "yyyyMMdd");
   const suffix = randomBytes(3).toString("hex").toUpperCase();
   return `MS-${day}-${suffix}`;
+}
+
+/** Sends the confirmation email. A failure is logged and never breaks order creation. */
+async function sendConfirmationSafely(orderId: string): Promise<void> {
+  try {
+    await sendOrderConfirmation(orderId);
+  } catch (error) {
+    console.error(`Could not send confirmation email for order ${orderId}`, error);
+  }
 }
 
 /** Validates the order, recalculates every price from the database, and saves it. */
@@ -127,6 +137,9 @@ export async function createOrder(userId: string, rawInput: unknown): Promise<st
     },
     select: { id: true },
   });
+
+  // The order is saved at this point. The email is sent after, and any failure is only logged.
+  await sendConfirmationSafely(order.id);
 
   return order.id;
 }
