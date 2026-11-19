@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { AuthError } from "next-auth";
 import { db } from "@/lib/db";
 import { signIn, signOut } from "@/lib/auth";
+import { consumeRateLimit, getClientIp, peekRateLimit } from "@/features/security/rate-limit";
 import { loginSchema, signupSchema } from "./schemas";
 
 export type FormState = {
@@ -18,6 +19,9 @@ function safeCallbackUrl(value: FormDataEntryValue | null): string {
 }
 
 export async function signupAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const blocked = await consumeRateLimit("signupIp", await getClientIp());
+  if (blocked) return { error: blocked };
+
   const parsed = signupSchema.safeParse({
     firstName: formData.get("firstName"),
     email: formData.get("email"),
@@ -70,6 +74,12 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
   if (!parsed.success) {
     return { fieldErrors: parsed.error.flatten().fieldErrors };
   }
+
+  // Show a clear message before trying. The attempt itself is counted inside authorize.
+  const blocked =
+    (await peekRateLimit("loginIp", await getClientIp())) ??
+    (await peekRateLimit("loginAccount", parsed.data.email));
+  if (blocked) return { error: blocked };
 
   try {
     await signIn("credentials", {

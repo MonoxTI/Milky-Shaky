@@ -1,12 +1,16 @@
 "use server";
 
 import { requireUser } from "@/lib/rbac";
+import { consumeRateLimit } from "@/features/security/rate-limit";
 import { PaymentError, startCheckout } from "./service";
 
 export type CheckoutResult = { ok: true; url: string } | { ok: false; error: string };
 
 export async function startCheckoutAction(orderId: string): Promise<CheckoutResult> {
   const user = await requireUser();
+
+  const blocked = await consumeRateLimit("paymentUser", user.id);
+  if (blocked) return { ok: false, error: blocked };
 
   try {
     const url = await startCheckout(user.id, orderId);

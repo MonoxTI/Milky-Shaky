@@ -2,10 +2,15 @@
 
 import { flashTo } from "@/lib/flash";
 import { requireRole } from "@/lib/rbac";
+import { consumeRateLimit } from "@/features/security/rate-limit";
 import { UserError, createStaffUser, setUserActive } from "./admin";
 
 export async function createUserAction(formData: FormData) {
   const user = await requireRole("MANAGER");
+
+  const blocked = await consumeRateLimit("staffCreateUser", user.id);
+  if (blocked) flashTo("/admin/users", "error", blocked);
+
   const role = formData.get("role") === "MANAGER" ? "MANAGER" : "CLIENT";
 
   try {

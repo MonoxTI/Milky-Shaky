@@ -1,12 +1,16 @@
 "use server";
 
 import { requireUser } from "@/lib/rbac";
+import { consumeRateLimit } from "@/features/security/rate-limit";
 import { OrderError, createOrder } from "./service";
 
 export type PlaceOrderResult = { ok: true; orderId: string } | { ok: false; error: string };
 
 export async function placeOrderAction(input: unknown): Promise<PlaceOrderResult> {
   const user = await requireUser();
+
+  const blocked = await consumeRateLimit("orderUser", user.id);
+  if (blocked) return { ok: false, error: blocked };
 
   try {
     const orderId = await createOrder(user.id, input);

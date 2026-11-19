@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { authConfig } from "@/lib/auth.config";
 import { loginSchema } from "@/features/auth/schemas";
+import { consumeRateLimit, getClientIp } from "@/features/security/rate-limit";
 
 // Used when the email doesn't exist, so the response time is the same
 // as for a wrong password. This stops attackers finding valid emails by timing.
@@ -22,6 +23,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
+
+        // Every attempt is counted here, whichever route it came in by.
+        const blocked =
+          (await consumeRateLimit("loginIp", await getClientIp())) ??
+          (await consumeRateLimit("loginAccount", email));
+        if (blocked) return null;
+
         const user = await db.user.findUnique({ where: { email } });
 
         if (!user || !user.isActive) {

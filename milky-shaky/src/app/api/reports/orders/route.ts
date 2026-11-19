@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { STATUS_LABELS } from "@/features/orders/labels";
 import { getOrdersReport, parseOrderStatus } from "@/features/reports/orders";
 import { REPORT_TIME_ZONE, resolveRange } from "@/features/reports/period";
+import { consumeRateLimit } from "@/features/security/rate-limit";
 
 const HEADERS = [
   "Reference",
@@ -33,6 +34,11 @@ export async function GET(request: Request) {
   const session = await auth();
   if (session?.user?.role !== "MANAGER") {
     return new Response("Forbidden", { status: 403 });
+  }
+
+  const blocked = await consumeRateLimit("exportUser", session.user.id);
+  if (blocked) {
+    return new Response(blocked, { status: 429, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
 
   const url = new URL(request.url);

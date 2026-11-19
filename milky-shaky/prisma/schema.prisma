@@ -11,8 +11,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------- Enums ----------
@@ -257,13 +258,7 @@ model AuditLog {
   @@index([actorId])
   @@index([createdAt])
 }
-// ---------- Rate limiting (fixed windows keyed by action and identifier) ----------
 
-model RateLimit {
-  key         String   @id
-  count       Int      @default(0)
-  windowStart DateTime
-}
 // ---------- Rate limiting (fixed windows keyed by action and identifier) ----------
 
 model RateLimit {
