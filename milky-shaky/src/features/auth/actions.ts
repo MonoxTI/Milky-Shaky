@@ -12,10 +12,13 @@ export type FormState = {
   fieldErrors?: Record<string, string[] | undefined>;
 } | null;
 
-/** Only allow redirects within this site, to prevent open-redirect attacks. */
+/**
+ * Returns the requested page if it's safely inside this site, otherwise an empty string.
+ * An empty string means "no specific page was asked for", so the role decides.
+ */
 function safeCallbackUrl(value: FormDataEntryValue | null): string {
-  const v = typeof value === "string" ? value : "";
-  return v.startsWith("/") && !v.startsWith("//") ? v : "/order";
+  const v = typeof value === "string" ? value.trim() : "";
+  return v.startsWith("/") && !v.startsWith("//") ? v : "";
 }
 
 export async function signupAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -75,23 +78,33 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
     return { fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
+  const { email, password } = parsed.data;
+
   // Show a clear message before trying. The attempt itself is counted inside authorize.
   const blocked =
     (await peekRateLimit("loginIp", await getClientIp())) ??
-    (await peekRateLimit("loginAccount", parsed.data.email));
+    (await peekRateLimit("loginAccount", email));
   if (blocked) return { error: blocked };
+
+  // Decide where to go before signing in. A specific page that was requested (for example,
+  // a protected page the user tried to open) wins. Otherwise managers go to the dashboard
+  // and clients go to ordering.
+  const requested = safeCallbackUrl(formData.get("callbackUrl"));
+  const account = await db.user.findUnique({ where: { email }, select: { role: true } });
+  const destination = requested || (account?.role === "MANAGER" ? "/admin" : "/order");
 
   try {
     await signIn("credentials", {
-      email: parsed.data.email,
-      password: parsed.data.password,
-      redirectTo: safeCallbackUrl(formData.get("callbackUrl")),
+      email,
+      password,
+      redirectTo: destination,
     });
   } catch (error) {
+    // Wrong password, unknown email, or a deactivated account all end up here.
     if (error instanceof AuthError) {
       return { error: "Incorrect email or password." };
     }
-    // signIn throws a redirect on success. Let Next.js handle it.
+    // A successful signIn throws a redirect. Let Next.js handle it.
     throw error;
   }
   return null;

@@ -16,6 +16,7 @@ export default function LoginPage({ searchParams }: { searchParams: Params }) {
 }
 
 // Reads the URL parameters inside Suspense (required by cacheComponents).
+// No callbackUrl means "send me where my role belongs" (managers to /admin, clients to /order).
 async function LoginFormWithParams({ searchParams }: { searchParams: Params }) {
   const { callbackUrl, reason } = await searchParams;
   return (
@@ -25,7 +26,7 @@ async function LoginFormWithParams({ searchParams }: { searchParams: Params }) {
           This account has been deactivated. Please contact the Milky Shaky team.
         </p>
       )}
-      <LoginForm callbackUrl={callbackUrl ?? "/order"} />
+      <LoginForm callbackUrl={callbackUrl ?? ""} />
     </div>
   );
 }
