@@ -18,22 +18,6 @@ function safeCallbackUrl(value: FormDataEntryValue | null): string {
   return v.startsWith("/") && !v.startsWith("//") ? v : "";
 }
 
-/**
- * Managers land on the dashboard unless they asked for another management page.
- * Clients land on the page they asked for, but never on a management page.
- */
-export function resolveDestination(role: "MANAGER" | "CLIENT", requested: string): string {
-  const asksForAdmin = requested.startsWith("/admin");
-
-  if (role === "MANAGER") {
-    return asksForAdmin ? requested : "/admin";
-  }
-  if (!requested || asksForAdmin) {
-    return "/order";
-  }
-  return requested;
-}
-
 export async function signupAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const blocked = await consumeRateLimit("signupIp", await getClientIp());
   if (blocked) return { error: blocked };
@@ -78,7 +62,7 @@ export async function signupAction(_prev: FormState, formData: FormData): Promis
     throw error;
   }
 
-  await signIn("credentials", { email, password, redirectTo: "/order" });
+  await signIn("credentials", { email, password, redirectTo: "/after-login" });
   return null;
 }
 
@@ -99,18 +83,14 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
     (await peekRateLimit("loginAccount", email));
   if (blocked) return { error: blocked };
 
-  const account = await db.user.findUnique({ where: { email }, select: { role: true } });
-  const destination = resolveDestination(
-    account?.role === "MANAGER" ? "MANAGER" : "CLIENT",
-    safeCallbackUrl(formData.get("callbackUrl")),
-  );
+  // The after-login page decides the final destination using the role from the server.
+  const requested = safeCallbackUrl(formData.get("callbackUrl"));
+  const redirectTo = requested
+    ? `/after-login?next=${encodeURIComponent(requested)}`
+    : "/after-login";
 
   try {
-    await signIn("credentials", {
-      email,
-      password,
-      redirectTo: destination,
-    });
+    await signIn("credentials", { email, password, redirectTo });
   } catch (error) {
     // Wrong password, unknown email, or a deactivated account all end up here.
     if (error instanceof AuthError) {
