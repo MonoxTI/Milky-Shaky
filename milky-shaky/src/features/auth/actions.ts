@@ -12,13 +12,26 @@ export type FormState = {
   fieldErrors?: Record<string, string[] | undefined>;
 } | null;
 
-/**
- * Returns the requested page if it's safely inside this site, otherwise an empty string.
- * An empty string means "no specific page was asked for", so the role decides.
- */
+/** Returns the requested page if it's inside this site, otherwise an empty string. */
 function safeCallbackUrl(value: FormDataEntryValue | null): string {
   const v = typeof value === "string" ? value.trim() : "";
   return v.startsWith("/") && !v.startsWith("//") ? v : "";
+}
+
+/**
+ * Managers land on the dashboard unless they asked for another management page.
+ * Clients land on the page they asked for, but never on a management page.
+ */
+export function resolveDestination(role: "MANAGER" | "CLIENT", requested: string): string {
+  const asksForAdmin = requested.startsWith("/admin");
+
+  if (role === "MANAGER") {
+    return asksForAdmin ? requested : "/admin";
+  }
+  if (!requested || asksForAdmin) {
+    return "/order";
+  }
+  return requested;
 }
 
 export async function signupAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -86,12 +99,11 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
     (await peekRateLimit("loginAccount", email));
   if (blocked) return { error: blocked };
 
-  // Decide where to go before signing in. A specific page that was requested (for example,
-  // a protected page the user tried to open) wins. Otherwise managers go to the dashboard
-  // and clients go to ordering.
-  const requested = safeCallbackUrl(formData.get("callbackUrl"));
   const account = await db.user.findUnique({ where: { email }, select: { role: true } });
-  const destination = requested || (account?.role === "MANAGER" ? "/admin" : "/order");
+  const destination = resolveDestination(
+    account?.role === "MANAGER" ? "MANAGER" : "CLIENT",
+    safeCallbackUrl(formData.get("callbackUrl")),
+  );
 
   try {
     await signIn("credentials", {
